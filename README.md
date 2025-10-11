@@ -19,30 +19,30 @@ BybyLang ra file thực thi (<em>executable</em>) nhanh chóng.
 ## Cài đặt
 
 1. Cài Nim (phiên bản khuyến nghị: 2.2.x):
-   ```bash
+```bash
 curl https://nim-lang.org/choosenim/init.sh -sSf | sh
 ```
 
 2. Clone repository BybyLang:
-   ```
+```bash
 git clone https://github.com/username/bybylang.git
 cd bybylang
 ```
 
 3. Chạy trực tiếp hoặc build AOT:
-   ```bash
+```bash
 nim c -r bybylang.nim
 ```
 
 ## Cách sử dụng
 
 1. Chạy trực tiếp file BybyLang:
-   ```
+```bash
 ./bybylang main.bybylang
 ```
 
 2. Biên dịch ra Nim code và executable:
-   ```
+```bash
 ./bybylang main.bybylang --aot=output
 ```
    `[--aot=output]` sẽ tạo:
@@ -74,24 +74,24 @@ sayHello
 ### Hardware commands
 
 - Ghi RAM:
-  ```bash
+```bash
 apu mem write RAM0 with 5
 ```
 - Đọc RAM:
-  ```
+```
 apu mem read RAM0 with 0
 ```
 - Truyền dữ liệu qua APU:
-  ```
+```bybylang
 apu tran print with "hello world"
 ```
 - Điều khiển pin:
-  ```
+```bybylang
 tran pulse pin 3 width 2ns
 apu pin 5 set high
 ```
 - Bus operations:
-  ```
+```bybylang
 bit send 101010
 bit recv
 mem map "RAM0"
@@ -109,16 +109,9 @@ mem push "RAM1" with 10
 - Lệnh phần cứng (`apu`, `bit`, `mem`, `tran`) chỉ chạy khi chế độ Low
 - File BybyLang nên có đuôi `.bybylang` để dễ nhận diện
 
-## Build Nim executable thủ công (tùy chọn)
-
-```bash
-nim c -d:release output.nim
-./output
-```
-
 ## Ví dụ file BybyLang (`main.bybylang`)
 
-```bash
+```bybylang
 mode is 1
 function sayHello
     print "Hello World"
