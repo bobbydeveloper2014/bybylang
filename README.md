@@ -3,8 +3,7 @@
 BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép điều khiển 
 phần cứng ảo (APU, BUS, RAM, Pins) hoặc sinh ra mã Nim thực thi trực tiếp. 
 BybyLang hỗ trợ chế độ **AOT compilation**, cho phép bạn biên dịch code 
-BybyLang ra file thực thi (<em>executable</em>) nhanh chóng.
-
+BybyLang ra file thực thi (<em>executable</em>) nhanh chóng. Hãy giúp dự án của tôi bằng cách pull request. Cảm ơn các bạn đã ghé đến dự án này!
 ## Tính năng chính
 
 - Hỗ trợ 3 chế độ:
