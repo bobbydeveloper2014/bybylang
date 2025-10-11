@@ -60,14 +60,13 @@ nim c -r bybylang.nim
 - `mode is 1` # 1: Low, 2: Mid, 3: High
 
 ### Function
-
-- `function sayHello`
-    ```
+```bybylang
+function sayHello
 print "Hello, Byby!"
 ```
 
 - Gọi hàm:
-  ```bash
+```bybylang
 sayHello
 ```
 
