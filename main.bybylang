@@ -1,0 +1,4 @@
+mode is 1
+apu tran "print" with "hello world"
+apu mem write "RAM0" with 5
+tran pulse pin 3 width 2ns
