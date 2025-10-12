@@ -1,89 +1,90 @@
 # BybyLang
 
-BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép điều khiển 
-phần cứng ảo (APU, BUS, RAM, Pins) hoặc sinh ra mã Nim thực thi trực tiếp. 
-BybyLang hỗ trợ chế độ **AOT compilation**, cho phép bạn biên dịch code 
-BybyLang ra file thực thi (<em>executable</em>) nhanh chóng. Hãy giúp dự án của tôi bằng cách pull request. Cảm ơn các bạn đã ghé đến dự án này!
-## Tính năng chính
+**BybyLang** is a programming language developed by Byby, allowing you to control virtual hardware (APU, BUS, RAM, Pins) or generate Nim code for direct execution. BybyLang supports **AOT compilation** for fast executable generation.
 
-- Hỗ trợ 3 chế độ:
-  - **Low**: thao tác trực tiếp phần cứng ảo
-  - **Mid**: tương tác code trung gian
-  - **High**: code kiểu Python/Objective-C
-- Mô phỏng RAM, BUS, Pins
-- Lệnh hardware-level: `apu tran`, `apu mem`, `bit send`, `mem push`, 
-`tran pulse`
-- Biên dịch ra Nim và build thành executable tự động
+_BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép điều khiển phần cứng ảo hoặc sinh ra mã Nim thực thi trực tiếp. BybyLang hỗ trợ chế độ biên dịch AOT, giúp bạn sinh file thực thi nhanh chóng._
 
-## Cài đặt
+## Main Features / Tính năng chính
 
-1. Cài Nim (phiên bản khuyến nghị: 2.2.x):
-```bash
-curl https://nim-lang.org/choosenim/init.sh -sSf | sh
-```
+- Supports 3 modes:
+  - **Low**: Direct virtual hardware interaction
+  - **Mid**: Intermediate code interaction
+  - **High**: Python/Objective-C style coding
 
-2. Clone repository BybyLang:
-```bash
-git clone https://github.com/username/bybylang.git
-cd bybylang
-```
+  _Hỗ trợ 3 chế độ: Low, Mid, High. Low thao tác phần cứng ảo, High giống Python._
+- Simulates RAM, BUS, Pins
+- Hardware-level commands: `apu tran`, `apu mem`, `bit send`, `mem push`, `tran pulse`
+- Compile to Nim and auto-build executable
 
-3. Chạy trực tiếp hoặc build AOT:
-```bash
-nim c -r bybylang.nim
-```
+## Installation / Cài đặt
 
-## Cách sử dụng
+1. **Install Nim (recommended version: 2.2.x):**
+    ```bash
+    curl https://nim-lang.org/choosenim/init.sh -sSf | sh
+    ```
 
-1. Chạy trực tiếp file BybyLang:
-```bash
-./bybylang main.bybylang
-```
+2. **Clone BybyLang repository:**
+    ```bash
+    git clone https://github.com/username/bybylang.git
+    cd bybylang
+    ```
 
-2. Biên dịch ra Nim code và executable:
-```bash
-./bybylang main.bybylang --aot=output
-```
-   `[--aot=output]` sẽ tạo:
-     - `output.nim` (mã Nim sinh ra từ BybyLang)
-     - `output` (executable Nim được build tự động với `-d:release`)
+3. **Run directly or build AOT:**
+    ```bash
+    nim c -r bybylang.nim
+    ```
 
-3. Tuỳ chọn thêm:
-   - `--ignore-errors`: bỏ qua lỗi RAM/Pins
-   - `--quiet`: không in log chi tiết
+## Usage / Cách sử dụng
 
-## Cú pháp cơ bản
+1. **Run BybyLang file directly:**
+    ```bash
+    ./bybylang main.bybylang
+    ```
+
+2. **Compile to Nim code and executable:**
+    ```bash
+    ./bybylang main.bybylang --aot=output
+    ```
+    `[--aot=output]` will generate:
+     - `output.nim` (Nim code generated from BybyLang)
+     - `output` (Nim executable built with `-d:release`)
+
+3. **Additional options / Tuỳ chọn thêm:**
+   - `--ignore-errors`: skip RAM/Pins errors
+   - `--quiet`: no verbose log
+
+## Basic Syntax / Cú pháp cơ bản
 
 ### Mode
 
 - `mode is 1` # 1: Low, 2: Mid, 3: High
 
 ### Function
+
 ```bybylang
 function sayHello
 print "Hello, Byby!"
 ```
-
-- Gọi hàm:
+- Call function:
 ```bybylang
 sayHello
 ```
 
 ### Hardware commands
 
-- Ghi RAM:
+- Write RAM:
 ```bash
 apu mem write RAM0 with 5
 ```
-- Đọc RAM:
+- Read RAM:
 ```
 apu mem read RAM0 with 0
 ```
-- Truyền dữ liệu qua APU:
+- APU data transfer:
 ```bybylang
 apu tran print with "hello world"
 ```
-- Điều khiển pin:
+- Pin control:
 ```bybylang
 tran pulse pin 3 width 2ns
 apu pin 5 set high
@@ -100,14 +101,14 @@ mem push "RAM1" with 10
 
 - `print "Hello World"`
 
-## Gợi ý viết code
+## Coding Tips / Gợi ý viết code
 
-- Luôn khai báo `mode is <level>` ở đầu file
-- Sử dụng `function` để định nghĩa hàm
-- Lệnh phần cứng (`apu`, `bit`, `mem`, `tran`) chỉ chạy khi chế độ Low
-- File BybyLang nên có đuôi `.bybylang` để dễ nhận diện
+- Always declare `mode is <level>` at the top of the file
+- Use `function` to define functions
+- Hardware commands (`apu`, `bit`, `mem`, `tran`) only run in Low mode
+- BybyLang files should use `.bybylang` extension
 
-## Ví dụ file BybyLang (`main.bybylang`)
+## Example BybyLang file (`main.bybylang`)
 
 ```bybylang
 mode is 1
@@ -120,5 +121,8 @@ tran pulse pin 3 width 2ns
 sayHello
 ```
 
-Sử dụng BybyLang giúp bạn khám phá và điều khiển phần cứng ảo một cách 
-trực quan. Hãy thử nghiệm và khám phá sức mạnh của BybyLang!
+_BybyLang giúp bạn khám phá và điều khiển phần cứng ảo trực quan. Hãy thử nghiệm và khám phá sức mạnh của BybyLang!_
+
+---
+
+**Pull requests are very welcome! Thank you for visiting the project!**
