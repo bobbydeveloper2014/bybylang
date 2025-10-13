@@ -36,12 +36,7 @@ _BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép đ
 
 ## Usage / Cách sử dụng
 
-1. **Run BybyLang file directly:**
-    ```bash
-    ./bybylang main.bybylang
-    ```
-
-2. **Compile to Nim code and executable:**
+1. **Compile to Nim code and executable:**
     ```bash
     ./bybylang main.bybylang --aot=output
     ```
@@ -49,7 +44,7 @@ _BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép đ
      - `output.nim` (Nim code generated from BybyLang)
      - `output` (Nim executable built with `-d:release`)
 
-3. **Additional options / Tuỳ chọn thêm:**
+2. **Additional options / Tuỳ chọn thêm:**
    - `--ignore-errors`: skip RAM/Pins errors
    - `--quiet`: no verbose log
 
@@ -63,11 +58,11 @@ _BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép đ
 
 ```bybylang
 function sayHello
-print "Hello, Byby!"
+  print "Hello, Byby!"
 ```
 - Call function:
 ```bybylang
-sayHello
+call sayHello
 ```
 
 ### Hardware commands
@@ -118,7 +113,7 @@ function sayHello
 apu mem write RAM0 with 5
 apu tran print with "hello world"
 tran pulse pin 3 width 2ns
-sayHello
+call sayHello
 ```
 
 _BybyLang giúp bạn khám phá và điều khiển phần cứng ảo trực quan. Hãy thử nghiệm và khám phá sức mạnh của BybyLang!_
