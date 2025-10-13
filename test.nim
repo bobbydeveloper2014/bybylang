@@ -22,8 +22,8 @@ echo "test1234"
 echo "Xin chào"
 test()
 var otest = 100 + 100 + 8739487 - 34827 + 48384 - 5455
-echo "otest"
-echo "1 + 1 + 10383487 - 438744"
+echo otest
+echo 1 + 1 + 10383487 - 438744
 echo "test1234"
 echo "Xin chào"
 testtest()

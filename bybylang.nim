@@ -320,8 +320,6 @@ proc generateNimCode(tokens: seq[Token], outFile: string) =
     for tk in v:
       if tk.sym == "print":
         var raw = tk.text.replace("print", "").strip()
-        if not (raw.startsWith("\"") and raw.endsWith("\"")):
-          raw = "\"" & raw & "\""
         code.add("  echo " & raw)
       elif tk.sym == "other":
         let line = tk.text.strip()
@@ -355,8 +353,6 @@ proc generateNimCode(tokens: seq[Token], outFile: string) =
     let t = tokens[idx]
     if t.sym == "print":
       var raw = t.text.replace("print", "").strip()
-      if not (raw.startsWith("\"") and raw.endsWith("\"")):
-        raw = "\"" & raw & "\""
       code.add("echo " & raw)
     elif t.sym == "other":
       let line = t.text.strip()
