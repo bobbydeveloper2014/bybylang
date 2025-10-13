@@ -1,5 +1,5 @@
 # bybylang.nim - BybyLang AOT executable + Nim code generation + auto compile release
-
+# Hỗ trợ cơ chế function: define function bằng "function NAME" ... kết thúc bằng một dòng chỉ chứa NAME
 import strutils, os, osproc, tables, sequtils
 
 # --------------------------
@@ -18,7 +18,7 @@ proc parseIntSafe(s: string): int =
     return 0
 
 # --------------------------
-# Types & Globals
+# Types
 # --------------------------
 type
   Mode = enum
@@ -27,55 +27,90 @@ type
   Token = object
     sym: string
     text: string
-
-  ValueKind = enum
-    IntVal, StrVal
-
-  Value = object
-    kind: ValueKind
-    ival: int
-    sval: string
-
+    indent: int
+# --------------------------
+# RAM / Bus / Pins giả lập
+# --------------------------
 const RAM_SIZE = 1024
+var RAM: array[0..RAM_SIZE-1, int]
+var BUS: seq[string] = @[]
+var Pins: array[0..31, bool]
 
-var
-  RAM: array[RAM_SIZE, int]
-  BUS: seq[string] = @[]
-  Pins: array[32, bool]
-  quietMode = false
-  ignoreErrors = false
-  symTable = initTable[string, Value]()
-  funcTable = initTable[string, seq[Token]]()
+var ignoreErrors = false
+var quietMode = false
 
-proc initSymTable()=
-  symTable = initTable[string, Value]()
+# function table lưu body token
+var funcTable = initTable[string, seq[Token]]()
 
 # --------------------------
-# APU / HW helpers
+# Lexer đơn giản
+# --------------------------
+
+
+proc tokenizeLine(line: string): Token =
+  var tok: Token
+  # Đếm số khoảng trắng đầu dòng để xác định cấp indent
+  tok.indent = line.len - line.strip(chars={' ', '\t'}).len
+
+  # Loại bỏ khoảng trắng đầu cuối để xử lý cú pháp
+  let clean = line.strip()
+
+  if clean.len == 0:
+    tok.sym = "empty"
+    tok.text = ""
+  elif clean.startsWith("function "):
+    tok.sym = "function"
+    tok.text = clean.replace("function ", "")
+  elif clean.startsWith("print "):
+    tok.sym = "print"
+    tok.text = clean
+  else:
+    tok.sym = "other"
+    tok.text = clean
+
+  return tok
+
+# Đọc file .bybylang và chuyển thành danh sách tokens
+proc tokenizeFile(filename: string): seq[Token] =
+  var tokens: seq[Token] = @[]
+  for line in lines(filename):
+    let t = tokenizeLine(line)
+    tokens.add(t)
+  return tokens
+# --------------------------
+# Hardware-level functions
 # --------------------------
 proc apuTran(name: string, payload: string) =
+  BUS.add(payload)
   if not quietMode:
     echo "[APU-TRAN] ", name, " -> ", payload
 
 proc apuMem(action: string, target: string, value: string) =
+  let ramAddr = parseIntSafe(target.replace("RAM",""))
+  if ramAddr < 0 or ramAddr >= RAM_SIZE:
+    if not ignoreErrors:
+      echo "[ERROR] Invalid RAM address: ", ramAddr
+      quit(1)
+    return
   if action == "write":
-    if target.startsWith("RAM"):
-      let idx = parseIntSafe(target.replace("RAM", ""))
-      if idx >= 0 and idx < RAM_SIZE:
-        RAM[idx] = parseIntSafe(value)
+    RAM[ramAddr] = parseIntSafe(value)
     if not quietMode:
-      echo "[APU-MEM] ", target, " <- ", value
-  else:
+      echo "[APU-MEM] RAM[", ramAddr, "] <- ", value
+  elif action == "read":
     if not quietMode:
-      echo "[APU-MEM] ", target, " -> ", (if target.startsWith("RAM"): $RAM[parseIntSafe(target.replace("RAM", ""))] else: "?")
+      echo "[APU-MEM] RAM[", ramAddr, "] -> ", RAM[ramAddr]
 
-proc apuCore(id: int, cmd: string) =
+proc apuCore(mode: int, code: string) =
   if not quietMode:
-    echo "[APU-CORE] ", id, " ", cmd
+    echo "[APU-CORE] Mode: ", mode, ", running: ", code
 
 proc apuPin(pin: int, state: string) =
-  if pin >= 0 and pin < Pins.high:
-    Pins[pin] = (state == "high")
+  if pin < 0 or pin > 31:
+    if not ignoreErrors:
+      echo "[ERROR] Invalid pin: ", pin
+      quit(1)
+    return
+  Pins[pin] = (state == "high")
   if not quietMode:
     echo "[APU-PIN] pin ", pin, " set ", state
 
@@ -107,66 +142,48 @@ proc tranPulse(pin: int, width: string) =
     echo "[TRAN-PULSE] pin ", pin, " width ", width
 
 # --------------------------
-# Expression evaluator
-# --------------------------
-proc evaluateExpression(s: string): Value =
-  let ss = s.strip()
-  if ss.len >= 2 and ss[0] == '"' and ss[^1] == '"':
-    return Value(kind: StrVal, ival: 0, sval: stripQuotes(ss))
-  # try integer (detect parse success)
-  try:
-    let ii = parseInt(ss)
-    return Value(kind: IntVal, ival: ii, sval: "")
-  except:
-    discard
-  # simple binary + operations (a + b)
-  if ss.contains("+"):
-    var parts = ss.split("+")
-    var sum = 0
-    for p in parts:
-      let t = p.strip()
-      if symTable.contains(t):
-        let v = symTable[t]
-        if v.kind == IntVal: sum.inc(v.ival) else: discard
-      else:
-        sum.inc(parseIntSafe(t))
-    return Value(kind: IntVal, ival: sum, sval: "")
-  # fallback: variable lookup
-  if symTable.contains(ss):
-    return symTable[ss]
-  # default
-  return Value(kind: StrVal, ival: 0, sval: ss)
-
-# --------------------------
-# Tokenizer
-# --------------------------
-proc tokenize(content: string): seq[Token] =
-  var res: seq[Token] = @[]
-  for line in content.split('\n'):
-    let tline = line.strip()
-    if tline.len == 0: continue
-    if tline.startsWith("print"):
-      res.add(Token(sym: "print", text: tline))
-    elif tline.startsWith("function"):
-      # function NAME
-      let name = tline.split()[1]
-      res.add(Token(sym: "function", text: name))
-    elif tline.contains("=") and not tline.startsWith("apu"):
-      res.add(Token(sym: "assign", text: tline))
-    elif tline.startsWith("apu") or tline.startsWith("tran") or tline.startsWith("bit") or tline.startsWith("mem"):
-      res.add(Token(sym: "hwcmd", text: tline))
-    else:
-      res.add(Token(sym: "other", text: tline))
-  return res
-
-# --------------------------
-# Runner BybyLang
+# Runner BybyLang with function mechanism
 # --------------------------
 proc runBybyLang(tokens: seq[Token]) =
-  var modeEnum: Mode = Low
+  # first pass: extract function bodies
+  funcTable = initTable[string, seq[Token]]()
   var i = 0
   while i < tokens.len:
     let t = tokens[i]
+    if t.sym == "function":
+      let fname = t.text.strip()
+      var body: seq[Token] = @[]
+      i.inc
+      while i < tokens.len and not (tokens[i].sym == "other" and tokens[i].text.strip() == fname):
+        body.add(tokens[i])
+        i.inc
+      # if termination line exists, skip it too
+      funcTable[fname] = body
+      # continue from next (i currently at terminator or past end)
+    else:
+      i.inc
+
+  # second pass: execute top-level (skip function bodies and terminators)
+  var modeEnum: Mode = Low
+  i = 0
+  while i < tokens.len:
+    let t = tokens[i]
+    # skip tokens that are inside function bodies or function header or terminator
+    if t.sym == "function":
+      # skip header and skip to matching terminator
+      let fname = t.text.strip()
+      i.inc
+      while i < tokens.len and not (tokens[i].sym == "other" and tokens[i].text.strip() == fname):
+        i.inc
+      # skip terminator if present
+      i.inc
+      continue
+    # skip a standalone terminator (already processed)
+    if t.sym == "other" and funcTable.contains(t.text.strip()):
+      # this is terminator line, skip
+      i.inc
+      continue
+
     try:
       case t.sym
       of "mode":
@@ -181,14 +198,6 @@ proc runBybyLang(tokens: seq[Token]) =
             quit(1)
         if not quietMode:
           echo "[MODE] ", modeEnum
-      of "function":
-        let name = t.text.strip()
-        var body: seq[Token] = @[]
-        i.inc
-        while i < tokens.len and not (tokens[i].sym == "other" and tokens[i].text.strip() == name):
-          body.add(tokens[i])
-          i.inc
-        funcTable[name] = body
       of "hwcmd":
         if t.text.startsWith("apu tran"):
           let parts = t.text.split("with")
@@ -200,12 +209,8 @@ proc runBybyLang(tokens: seq[Token]) =
           let left = parts[0].split()
           let action = left[2]
           let target = stripQuotes(left[3])
-          let rawVal = parts[1].strip()
-          let ev = evaluateExpression(rawVal)
-          if ev.kind == StrVal:
-            apuMem(action, target, ev.sval)
-          else:
-            apuMem(action, target, $ev.ival)
+          let value = parts[1].strip()
+          apuMem(action, target, value)
         elif t.text.startsWith("apu core"):
           apuCore(1, "run")
         elif t.text.startsWith("apu pin"):
@@ -235,23 +240,23 @@ proc runBybyLang(tokens: seq[Token]) =
           if not quietMode:
             echo "[HW] ", t.text
       of "print":
-        let raw = t.text.replace("print", "").strip()
-        let v = evaluateExpression(raw)
-        if v.kind == StrVal:
-          echo v.sval
+        let msg = t.text.replace("print", "").strip()
+        # allow simple variable echo or literal
+        if msg.len >= 2 and msg[0] == '"' and msg[^1] == '"':
+          echo msg[1..^2]
         else:
-          echo v.ival
-      of "assign":
-        var parts = t.text.split("=")
-        if parts.len >= 2:
-          var name = parts[0].replace("let", "").strip()
-          var expr = parts[1..^1].join("=").strip()
-          let v = evaluateExpression(expr)
-          symTable[name] = v
+          echo msg
+      of "component":
+        if not quietMode:
+          echo "[COMPONENT] ", t.text
       of "other":
-        if funcTable.contains(t.text.strip()):
-          let body = funcTable[t.text.strip()]
-          runBybyLang(body)
+        # if token matches a function call (name) then run its body
+        let nm = t.text.strip()
+        if funcTable.contains(nm):
+          if not quietMode:
+            echo "[CALL] function ", nm
+          # execute function body tokens (simple recursion)
+          runBybyLang(funcTable[nm])
         else:
           if not quietMode:
             echo "[UNKNOWN] ", t.text
@@ -267,153 +272,112 @@ proc runBybyLang(tokens: seq[Token]) =
 # Generate Nim code + compile to binary release
 # --------------------------
 proc generateNimCode(tokens: seq[Token], outFile: string) =
+  var funcBodiesLocal = initTable[string, seq[Token]]()
+  var idx = 0
+
+  # --- tách thân hàm bằng indent ---
+  while idx < tokens.len:
+    let t = tokens[idx]
+    if t.sym == "function":
+      let fname = t.text.strip()
+      let baseIndent = t.indent
+      var body: seq[Token] = @[]
+      idx.inc
+      while idx < tokens.len and tokens[idx].indent > baseIndent:
+        body.add(tokens[idx])
+        idx.inc
+      funcBodiesLocal[fname] = body
+    else:
+      idx.inc
+
+  # --- khởi tạo file ---
   var nimFile = outFile
-  if not nimFile.endsWith(".nim"):
-    nimFile &= ".nim"
+  if not nimFile.endsWith(".nim"): nimFile &= ".nim"
 
   var code = newSeq[string]()
   code.add("import strutils, sequtils")
-  code.add("const RAM_SIZE = " & $RAM_SIZE)
-  code.add("var RAM: array[" & $RAM_SIZE & ", int]")
+  code.add("const RAM_SIZE = 1024")
+  code.add("var RAM: array[0..RAM_SIZE-1, int]")
   code.add("var BUS: seq[string] = @[]")
-  code.add("var Pins: array[32, bool]")
+  code.add("var Pins: array[0..31, bool]")
   code.add("")
-  
-  # First, collect all variables used in assignments
-  var varNames = newSeq[string]()
-  for t in tokens:
-    if t.sym == "assign":
-      let parts = t.text.split("=")
-      if parts.len >= 1:
-        let name = parts[0].replace("let", "").strip()
-        if not varNames.contains(name):
-          varNames.add(name)
-  
-  # Emit variable declarations at the top
-  for name in varNames:
-    code.add("var " & name & ": int")
-  code.add("")
-
   code.add("proc stripQuotes(s: string): string =")
   code.add("  if s.len >= 2 and s[0] == '\"' and s[^1] == '\"': return s[1..^2]")
   code.add("  else: return s")
   code.add("")
 
-  # pre-scan functions
-  var funcBodiesLocal = initTable[string, seq[Token]]()
-  var skip = initTable[int, bool]()
-  var j = 0
-  while j < tokens.len:
-    if tokens[j].sym == "function":
-      let fname = tokens[j].text.strip()
-      var body: seq[Token] = @[]
-      var k = j + 1
-      while k < tokens.len and not (tokens[k].sym == "other" and tokens[k].text.strip() == fname):
-        body.add(tokens[k])
-        skip[k] = true
-        k.inc
-      funcBodiesLocal[fname] = body
-      skip[j] = true
-      if k < tokens.len: skip[k] = true
-      j = k + 1
-    else:
-      j.inc
+  # --- thu thập tên hàm ---
+  var funcNames: seq[string] = @[]
+  for k, _ in funcBodiesLocal:
+    funcNames.add(k)
+  var varNames: seq[string] = @[]
 
-  # emit top-level
-  for idx in 0 ..< tokens.len:
-    if skip.contains(idx): continue
-    let t = tokens[idx]
-    if t.sym == "print":
-      let raw = t.text.replace("print", "").strip()
-      if raw.startsWith("\"") and raw.endsWith("\""):
-        let esc = raw[1..^2].replace("\"", "\\\"")
-        code.add("echo \"" & esc & "\"")
-      else:
-        # For expressions and variables, evaluate them
-        code.add("echo " & raw)
-    elif t.sym == "hwcmd":
-      if t.text.startsWith("apu tran"):
-        let parts = t.text.split("with")
-        let name = stripQuotes(parts[0].split()[2].strip())
-        let payload = parts[1].strip()
-        code.add("echo \"[APU-TRAN] " & name.replace("\"","\\\"") & " -> " & payload.replace("\"","\\\"") & "\"\n")
-      elif t.text.startsWith("apu mem"):
-        let parts = t.text.split("with")
-        let left = parts[0].split()
-        let action = left[2]
-        let target = stripQuotes(left[3])
-        let value = parts[1].strip()
-        if action == "write":
-          let idx = target.replace("RAM", "")
-          code.add("RAM[" & idx & "] = " & value & "\n")
-          code.add("echo \"[APU-MEM] RAM[" & idx & "] <- " & value & "\"")
-        else:
-          code.add("echo \"[APU-MEM] " & target & " -> \" & $RAM[0]")
-      elif t.text.startsWith("tran pulse"):
-        let parts = t.text.split()
-        let pin = parseIntSafe(parts[3])
-        let width = parts[^1]
-        code.add("echo \"[TRAN-PULSE] pin " & $pin & " width " & width & "\"")
-    elif t.sym == "assign":
-      let parts = t.text.split("=")
-      if parts.len >= 2:
-        let name = parts[0].replace("let", "").strip()
-        let expr = parts[1..^1].join("=").strip()
-        if expr.startsWith("\"") and expr.endsWith("\""):
-          # String assignment (not supported in current version)
-          code.add("# String assignment not yet supported: " & name)
-        else:
-          # For numeric expressions, emit as-is
-          code.add(name & " = " & expr)
-    elif t.sym == "other":
-      let nm = t.text.strip()
-      if funcBodiesLocal.contains(nm):
-        code.add("fn_" & nm & "()\n")
-
-  # emit functions
+  # --- 1. Sinh tất cả proc trước ---
   for k, v in funcBodiesLocal:
-    code.add("proc fn_" & k & "() =\n")
+    code.add("")
+    code.add("proc " & k & "() =")
+    var localVars: seq[string] = @[]
     for tk in v:
       if tk.sym == "print":
-        let raw = tk.text.replace("print", "").strip()
-        if raw.startsWith("\"") and raw.endsWith("\""):
-          let esc = raw[1..^2].replace("\"", "\\\"")
-          code.add("  echo \"" & esc & "\"\n")
-        else:
-          code.add("  echo (" & raw & ")\n")
-      elif tk.sym == "assign":
-        let parts = tk.text.split("=")
-        if parts.len >= 2:
-          let name = parts[0].replace("let", "").strip()
-          let expr = parts[1..^1].join("=").strip()
-          code.add("  " & name & " = " & expr & "\n")
-      elif tk.sym == "hwcmd":
-        if tk.text.startsWith("apu tran"):
-          let parts = tk.text.split("with")
-          let aname = stripQuotes(parts[0].split()[2].strip())
-          let payload = parts[1].strip()
-          code.add("  echo \"[APU-TRAN] " & aname.replace("\"","\\\"") & " -> " & payload.replace("\"","\\\"") & "\"\n")
-        elif tk.text.startsWith("apu mem"):
-          let parts = tk.text.split("with")
-          let left = parts[0].split()
-          let action = left[2]
-          let target = stripQuotes(left[3])
-          let value = parts[1].strip()
-          if action == "write":
-            let idx = target.replace("RAM", "")
-            code.add("  RAM[" & idx & "] = " & value)
-            code.add("  echo \"[APU-MEM] RAM[" & idx & "] <- " & value & "\"")
+        var raw = tk.text.replace("print", "").strip()
+        if not (raw.startsWith("\"") and raw.endsWith("\"")):
+          raw = "\"" & raw & "\""
+        code.add("  echo " & raw)
+      elif tk.sym == "other":
+        let line = tk.text.strip()
+        if line.startsWith("call "):
+          let fname = line.split()[1]
+          if fname in funcNames:
+            code.add("  " & fname & "()")
           else:
-            code.add("  echo \"[APU-MEM] " & target & " -> \" & $RAM[0]")
+            code.add("  {.compileTimeError: \"Function " & fname & " not found\".}")
+        elif line in funcNames:
+          code.add("  " & line & "()")
+        elif line.contains("="):
+          let parts = line.split("=")
+          if parts.len >= 2:
+            let left = parts[0].strip()
+            let right = parts[1..^1].join("=").strip()
+            if left notin localVars:
+              localVars.add(left)
+              code.add("  var " & left & " = " & right)
+            else:
+              code.add("  " & left & " = " & right)
+        else:
+          discard
       else:
-        let esc = tk.text.replace("\"", "\\\"")
-        code.add("  echo \"" & esc & "\"")
+        discard
 
-  # write file with newlines
+  # --- 2. Sinh top-level code ---
+  code.add("")
+  idx = 0
+  while idx < tokens.len:
+    let t = tokens[idx]
+    if t.sym == "print":
+      var raw = t.text.replace("print", "").strip()
+      if not (raw.startsWith("\"") and raw.endsWith("\"")):
+        raw = "\"" & raw & "\""
+      code.add("echo " & raw)
+    elif t.sym == "other":
+      let line = t.text.strip()
+      if line.startsWith("call "):
+        let fname = line.split()[1]
+        if fname in funcNames:
+          code.add(fname & "()")  # gọi trực tiếp, không echo
+        else:
+          code.add("{.compileTimeError: \"Function " & fname & " not found\".}")
+      elif line.contains("="):
+        let parts = line.split("=")
+        if parts.len >= 2:
+          let left = parts[0].strip()
+          let right = parts[1..^1].join("=").strip()
+          code.add("var " & left & " = " & right)
+      else:
+        discard
+    idx.inc
+
   writeFile(nimFile, code.join("\n"))
   echo "[INFO] Generated Nim code to ", nimFile
-
-  # compile
   let cmd = "nim c -d:release -o:" & outFile & " " & nimFile
   let res = execProcess(cmd)
   echo res
@@ -426,7 +390,7 @@ proc main() =
   var inputFile = ""
   var args = commandLineParams()
   var aotFile = ""
-  initSymTable()
+  discard initTable[string, seq[Token]]()
   for i, a in args:
     if a == "--ignore-errors":
       ignoreErrors = true
@@ -445,8 +409,8 @@ proc main() =
     echo "[ERROR] File not found: ", inputFile
     quit(1)
 
-  let fileContent = readFile(inputFile)
-  let tokens = tokenize(fileContent)
+  # --- Sửa tại đây ---
+  let tokens = tokenizeFile(inputFile)
 
   if aotFile != "":
     generateNimCode(tokens, aotFile)
