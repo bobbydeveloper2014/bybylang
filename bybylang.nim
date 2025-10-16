@@ -46,7 +46,6 @@ var funcTable = initTable[string, seq[Token]]()
 # Lexer đơn giản
 # --------------------------
 
-
 proc tokenizeLine(line: string): Token =
   var tok: Token
   # Đếm số khoảng trắng đầu dòng để xác định cấp indent
@@ -142,133 +141,6 @@ proc tranPulse(pin: int, width: string) =
     echo "[TRAN-PULSE] pin ", pin, " width ", width
 
 # --------------------------
-# Runner BybyLang with function mechanism
-# --------------------------
-proc runBybyLang(tokens: seq[Token]) =
-  # first pass: extract function bodies
-  funcTable = initTable[string, seq[Token]]()
-  var i = 0
-  while i < tokens.len:
-    let t = tokens[i]
-    if t.sym == "function":
-      let fname = t.text.strip()
-      var body: seq[Token] = @[]
-      i.inc
-      while i < tokens.len and not (tokens[i].sym == "other" and tokens[i].text.strip() == fname):
-        body.add(tokens[i])
-        i.inc
-      # if termination line exists, skip it too
-      funcTable[fname] = body
-      # continue from next (i currently at terminator or past end)
-    else:
-      i.inc
-
-  # second pass: execute top-level (skip function bodies and terminators)
-  var modeEnum: Mode = Low
-  i = 0
-  while i < tokens.len:
-    let t = tokens[i]
-    # skip tokens that are inside function bodies or function header or terminator
-    if t.sym == "function":
-      # skip header and skip to matching terminator
-      let fname = t.text.strip()
-      i.inc
-      while i < tokens.len and not (tokens[i].sym == "other" and tokens[i].text.strip() == fname):
-        i.inc
-      # skip terminator if present
-      i.inc
-      continue
-    # skip a standalone terminator (already processed)
-    if t.sym == "other" and funcTable.contains(t.text.strip()):
-      # this is terminator line, skip
-      i.inc
-      continue
-
-    try:
-      case t.sym
-      of "mode":
-        let m = parseIntSafe(t.text)
-        case m
-        of 1: modeEnum = Low
-        of 2: modeEnum = Mid
-        of 3: modeEnum = High
-        else:
-          if not ignoreErrors:
-            echo "[ERROR] Invalid mode: ", m
-            quit(1)
-        if not quietMode:
-          echo "[MODE] ", modeEnum
-      of "hwcmd":
-        if t.text.startsWith("apu tran"):
-          let parts = t.text.split("with")
-          let name = stripQuotes(parts[0].split()[2].strip())
-          let payload = parts[1].strip()
-          apuTran(name, payload)
-        elif t.text.startsWith("apu mem"):
-          let parts = t.text.split("with")
-          let left = parts[0].split()
-          let action = left[2]
-          let target = stripQuotes(left[3])
-          let value = parts[1].strip()
-          apuMem(action, target, value)
-        elif t.text.startsWith("apu core"):
-          apuCore(1, "run")
-        elif t.text.startsWith("apu pin"):
-          let words = t.text.split()
-          let pin = parseIntSafe(words[2])
-          let state = words[4]
-          apuPin(pin, state)
-        elif t.text.startsWith("bit send"):
-          let bits = t.text.split()[2]
-          bitSend(bits)
-        elif t.text.startsWith("bit recv"):
-          bitRecv()
-        elif t.text.startsWith("mem map"):
-          let target = stripQuotes(t.text.split()[2])
-          memMap(target)
-        elif t.text.startsWith("mem push"):
-          let parts = t.text.split("with")
-          let target = stripQuotes(parts[0].split()[2])
-          let value = parts[1].strip()
-          memPush(target, value)
-        elif t.text.startsWith("tran pulse"):
-          let words = t.text.split()
-          let pin = parseIntSafe(words[3])
-          let width = words[^1]
-          tranPulse(pin, width)
-        else:
-          if not quietMode:
-            echo "[HW] ", t.text
-      of "print":
-        let msg = t.text.replace("print", "").strip()
-        # allow simple variable echo or literal
-        if msg.len >= 2 and msg[0] == '"' and msg[^1] == '"':
-          echo msg[1..^2]
-        else:
-          echo msg
-      of "component":
-        if not quietMode:
-          echo "[COMPONENT] ", t.text
-      of "other":
-        # if token matches a function call (name) then run its body
-        let nm = t.text.strip()
-        if funcTable.contains(nm):
-          if not quietMode:
-            echo "[CALL] function ", nm
-          # execute function body tokens (simple recursion)
-          runBybyLang(funcTable[nm])
-        else:
-          if not quietMode:
-            echo "[UNKNOWN] ", t.text
-      else:
-        if not quietMode:
-          echo "[UNKNOWN] ", t.text
-    except:
-      if not ignoreErrors:
-        raise
-    i.inc
-
-# --------------------------
 # Generate Nim code + compile to binary release
 # --------------------------
 proc generateNimCode(tokens: seq[Token], outFile: string) =
@@ -302,8 +174,47 @@ proc generateNimCode(tokens: seq[Token], outFile: string) =
   code.add("var Pins: array[0..31, bool]")
   code.add("")
   code.add("proc stripQuotes(s: string): string =")
-  code.add("  if s.len >= 2 and s[0] == '\"' and s[^1] == '\"': return s[1..^2]")
-  code.add("  else: return s")
+  code.add("  if s.len >= 2 and s[0] == '\"' and s[^1] == '\"':")
+  code.add("    return s[1..^2]")
+  code.add("  else:")
+  code.add("    return s")
+  code.add("")
+  # --- proc HW ---
+  code.add("proc apuTran(name: string, payload: string) =")
+  code.add("  BUS.add(payload)")
+  code.add("  echo \"[APU-TRAN] \", name, \" -> \", payload")
+  code.add("")
+  code.add("proc apuMem(action: string, target: string, value: string) =")
+  code.add("  var ramAddr = parseInt(target.replace(\"RAM\", \"\"))")
+  code.add("  if action == \"write\":")
+  code.add("    RAM[ramAddr] = parseInt(value)")
+  code.add("  elif action == \"read\":")
+  code.add("    echo \"[APU-MEM] RAM[\", ramAddr, \"] -> \", RAM[ramAddr]")
+  code.add("")
+  code.add("proc apuCore(mode: int, code: string) =")
+  code.add("  echo \"[APU-CORE] Mode:\", mode, \" run:\", code")
+  code.add("")
+  code.add("proc apuPin(pin: int, state: string) =")
+  code.add("  Pins[pin] = (state == \"high\")")
+  code.add("")
+  code.add("proc bitSend(bits: string) =")
+  code.add("  BUS.add(bits)")
+  code.add("")
+  code.add("proc bitRecv() =")
+  code.add("  if BUS.len > 0:")
+  code.add("    echo BUS[0]")
+  code.add("    delete(BUS, 0)")
+  code.add("  else:")
+  code.add("    echo \"[BIT-RECV] empty\"")
+  code.add("")
+  code.add("proc memMap(target: string) =")
+  code.add("  echo \"[MEM-MAP] \", target")
+  code.add("")
+  code.add("proc memPush(target: string, value: string) =")
+  code.add("  echo \"[MEM-PUSH] \", target, \" <- \", value")
+  code.add("")
+  code.add("proc tranPulse(pin: int, width: string) =")
+  code.add("  echo \"[TRAN-PULSE] pin \", pin, \" width \", width")
   code.add("")
 
   # --- thu thập tên hàm ---
@@ -356,7 +267,148 @@ proc generateNimCode(tokens: seq[Token], outFile: string) =
       code.add("echo " & raw)
     elif t.sym == "other":
       let line = t.text.strip()
-      if line.startsWith("call "):
+      # --- xử lý if ---
+      if line.startsWith("if "):
+        let baseIndent = t.indent
+        code.add(line)
+        var j = idx + 1
+        while j < tokens.len and tokens[j].indent > baseIndent:
+          let tk = tokens[j]
+          let l2 = tk.text.strip()
+
+          # lệnh bên trong khối if
+          if tk.sym == "print":
+            code.add("  echo " & tk.text.replace("print", "").strip())
+          elif l2.startsWith("apu tran"):
+            let parts = l2.split("with")
+            let name = stripQuotes(parts[0].split()[2].strip())
+            let payload = parts[1].strip()
+            code.add("  apuTran(\"" & name & "\", " & payload & ")")
+          elif l2.startsWith("apu mem"):
+            let parts = l2.split("with")
+            let left = parts[0].split()
+            let action = left[2]
+            let target = stripQuotes(left[3])
+            let value = parts[1].strip()
+            code.add("  apuMem(\"" & action & "\", \"" & target & "\", " & value & ")")
+          elif l2.startsWith("apu core"):
+            code.add("  apuCore(0, \"" & l2.replace("apu core", "").strip() & "\")")
+          elif l2.startsWith("apu pin"):
+            let p = l2.replace("apu pin", "").strip().split(",")
+            code.add("  apuPin(" & p.join(", ") & ")")
+          elif l2.startsWith("bit send"):
+            code.add("  bitSend(" & l2.replace("bit send", "").strip() & ")")
+          elif l2.startsWith("bit recv"):
+            code.add("  bitRecv()")
+          elif l2.startsWith("mem map"):
+            code.add("  memMap(" & l2.replace("mem map", "").strip() & ")")
+          elif l2.startsWith("mem push"):
+            let p = l2.replace("mem push", "").strip().split(",")
+            code.add("  memPush(" & p.join(", ") & ")")
+          elif l2.startsWith("tran pulse"):
+            let p = l2.replace("tran pulse", "").strip().split(",")
+            code.add("  tranPulse(" & p.join(", ") & ")")
+          elif l2.contains("="):
+            let p = l2.split("=")
+            if p.len >= 2:
+              code.add("  " & p[0].strip() & " = " & p[1..^1].join("=").strip())
+          j.inc
+        idx = j - 1
+
+      # --- xử lý elif ---
+      elif line.startsWith("elif "):
+        let baseIndent = t.indent
+        code.add(line)
+        var j = idx + 1
+        while j < tokens.len and tokens[j].indent > baseIndent:
+          let tk = tokens[j]
+          let l2 = tk.text.strip()
+          # xử lý như trong if
+          if tk.sym == "print":
+            code.add("  echo " & tk.text.replace("print", "").strip())
+          elif l2.startsWith("apu tran"):
+            let parts = l2.split("with")
+            let name = stripQuotes(parts[0].split()[2].strip())
+            let payload = parts[1].strip()
+            code.add("  apuTran(\"" & name & "\", " & payload & ")")
+          elif l2.startsWith("apu mem"):
+            let parts = l2.split("with")
+            let left = parts[0].split()
+            let action = left[2]
+            let target = stripQuotes(left[3])
+            let value = parts[1].strip()
+            code.add("  apuMem(\"" & action & "\", \"" & target & "\", " & value & ")")
+          elif l2.startsWith("apu core"):
+            code.add("  apuCore(0, \"" & l2.replace("apu core", "").strip() & "\")")
+          elif l2.startsWith("apu pin"):
+            let p = l2.replace("apu pin", "").strip().split(",")
+            code.add("  apuPin(" & p.join(", ") & ")")
+          elif l2.startsWith("bit send"):
+            code.add("  bitSend(" & l2.replace("bit send", "").strip() & ")")
+          elif l2.startsWith("bit recv"):
+            code.add("  bitRecv()")
+          elif l2.startsWith("mem map"):
+            code.add("  memMap(" & l2.replace("mem map", "").strip() & ")")
+          elif l2.startsWith("mem push"):
+            let p = l2.replace("mem push", "").strip().split(",")
+            code.add("  memPush(" & p.join(", ") & ")")
+          elif l2.startsWith("tran pulse"):
+            let p = l2.replace("tran pulse", "").strip().split(",")
+            code.add("  tranPulse(" & p.join(", ") & ")")
+          elif l2.contains("="):
+            let p = l2.split("=")
+            if p.len >= 2:
+              code.add("  " & p[0].strip() & " = " & p[1..^1].join("=").strip())
+          j.inc
+        idx = j - 1
+
+      # --- xử lý else ---
+      elif line == "else:":
+        let baseIndent = t.indent
+        code.add(line)
+        var j = idx + 1
+        while j < tokens.len and tokens[j].indent > baseIndent:
+          let tk = tokens[j]
+          let l2 = tk.text.strip()
+          # xử lý như trong if
+          if tk.sym == "print":
+            code.add("  echo " & tk.text.replace("print", "").strip())
+          elif l2.startsWith("apu tran"):
+            let parts = l2.split("with")
+            let name = stripQuotes(parts[0].split()[2].strip())
+            let payload = parts[1].strip()
+            code.add("  apuTran(\"" & name & "\", " & payload & ")")
+          elif l2.startsWith("apu mem"):
+            let parts = l2.split("with")
+            let left = parts[0].split()
+            let action = left[2]
+            let target = stripQuotes(left[3])
+            let value = parts[1].strip()
+            code.add("  apuMem(\"" & action & "\", \"" & target & "\", " & value & ")")
+          elif l2.startsWith("apu core"):
+            code.add("  apuCore(0, \"" & l2.replace("apu core", "").strip() & "\")")
+          elif l2.startsWith("apu pin"):
+            let p = l2.replace("apu pin", "").strip().split(",")
+            code.add("  apuPin(" & p.join(", ") & ")")
+          elif l2.startsWith("bit send"):
+            code.add("  bitSend(" & l2.replace("bit send", "").strip() & ")")
+          elif l2.startsWith("bit recv"):
+            code.add("  bitRecv()")
+          elif l2.startsWith("mem map"):
+            code.add("  memMap(" & l2.replace("mem map", "").strip() & ")")
+          elif l2.startsWith("mem push"):
+            let p = l2.replace("mem push", "").strip().split(",")
+            code.add("  memPush(" & p.join(", ") & ")")
+          elif l2.startsWith("tran pulse"):
+            let p = l2.replace("tran pulse", "").strip().split(",")
+            code.add("  tranPulse(" & p.join(", ") & ")")
+          elif l2.contains("="):
+            let p = l2.split("=")
+            if p.len >= 2:
+              code.add("  " & p[0].strip() & " = " & p[1..^1].join("=").strip())
+          j.inc
+        idx = j - 1
+      elif line.startsWith("call "):
         let fname = line.split()[1]
         if fname in funcNames:
           code.add(fname & "()")  # gọi trực tiếp, không echo
@@ -368,6 +420,190 @@ proc generateNimCode(tokens: seq[Token], outFile: string) =
           let left = parts[0].strip()
           let right = parts[1..^1].join("=").strip()
           code.add("var " & left & " = " & right)
+      elif line.startsWith("while true:"):
+        let baseIndent = t.indent
+        code.add(t.text)  # ghi nguyên dòng while true:
+        var localVars: seq[string] = @[]
+
+        var j = idx + 1
+        while j < tokens.len and tokens[j].indent > baseIndent:
+          let tk = tokens[j]
+
+          if tk.sym == "print":
+            var raw = tk.text.replace("print", "").strip()
+            code.add("  echo " & raw)
+          elif tk.sym == "other":
+            let line = tk.text.strip()
+            if line.startsWith("call "):
+              let fname = line.split()[1]
+              if fname in funcNames:
+                code.add("  " & fname & "()")
+              else:
+                code.add("  {.compileTimeError: \"Function " & fname & " not found\".}")
+            elif line in funcNames:
+              code.add("  " & line & "()")
+            elif line.contains("="):
+              let parts = line.split("=")
+              if parts.len >= 2:
+                let left = parts[0].strip()
+                let right = parts[1..^1].join("=").strip()
+                if left notin localVars:
+                  localVars.add(left)
+                  code.add("  var " & left & " = " & right)
+                else:
+                  code.add("  " & left & " = " & right)
+                        # --- if / elif / else ---
+            elif line.startsWith("if "):
+              code.add("  " & line & ":")
+            elif line.startsWith("elif "):
+              code.add("  " & line & ":")
+            elif line == "else":
+              code.add("  else:")
+            # HW / BIT / MEM / TRAN
+            elif line.startswith("apu tran"):
+              let parts = line.split("with")
+              let name = stripQuotes(parts[0].split()[2].strip())
+              let payload = parts[1].strip()
+              code.add("  apuTran(" & name & ", " & payload & ")")
+            elif line.startswith("apu mem"):
+              let parts = line.split("with")
+              let left = parts[0].split()
+              let action = left[2]
+              let target = stripQuotes(left[3])
+              let value = parts[1].strip()
+              code.add("  apuMem(\"" & action & "\", \"" & target & "\", \"" & value & "\")")
+            elif line.startswith("apu core"):
+              code.add("  apuCore(1, \"run\")")
+            elif line.startswith("apu pin"):
+              let words = line.split()
+              code.add("  apuPin(" & words[2] & ", \"" & words[4] & "\")")
+            elif line.startswith("bit send"):
+              code.add("  bitSend(\"" & line.split()[2] & "\")")
+            elif line.startswith("bit recv"):
+              code.add("  bitRecv()")
+            elif line.startswith("mem map"):
+              code.add("  memMap(\"" & stripQuotes(line.split()[2]) & "\")")
+            elif line.startswith("mem push"):
+              let parts = line.split("with")
+              code.add("  memPush(\"" & stripQuotes(parts[0].split()[2]) & "\", \"" & parts[1].strip() & "\")")
+            elif line.startswith("tran pulse"):
+              let words = line.split()
+              code.add("  tranPulse(" & words[3] & ", \"" & words[^1] & "\")")
+            else:
+              discard
+          else:
+            discard
+
+          j.inc
+        idx = j - 1
+      elif line.startsWith("for "):
+        # --- xử lý cú pháp range() ---
+        var forLine = line
+        if "range(" in forLine:
+          let inside = forLine.split("range(")[1].split(")")[0]
+          let parts = inside.split(",")
+          if parts.len == 2:
+            let start = parts[0].strip()
+            let stop = parts[1].strip()
+            forLine = forLine.replace("range(" & inside & ")", start & ".." & stop)
+
+        let baseIndent = t.indent
+        code.add(forLine)  # ví dụ: for i in 1..5:
+        var j = idx + 1
+
+        # --- xử lý các dòng bên trong for ---
+        while j < tokens.len and tokens[j].indent > baseIndent:
+          let tk = tokens[j]
+          let l2 = tk.text.strip()
+
+          # print
+          if tk.sym == "print":
+            code.add("  echo " & tk.text.replace("print", "").strip())
+
+          # apu tran
+          elif l2.startsWith("apu tran"):
+            let parts = l2.split("with")
+            let name = stripQuotes(parts[0].split()[2].strip())
+            let payload = parts[1].strip()
+            code.add("  apuTran(\"" & name & "\", " & payload & ")")
+
+          # apu mem
+          elif line.startsWith("apu mem"):
+            let parts = line.split("with")
+            let left = parts[0].split()
+            let action = left[2]
+            let target = stripQuotes(left[3])
+            let value = parts[1].strip()
+            code.add("apuMem(\"" & action & "\", \"" & target & "\", \"" & value & "\")")
+
+          # bit send / recv
+          elif l2.startsWith("bit send"):
+            code.add("  bitSend(\"" & l2.split()[2] & "\")")
+          elif l2.startsWith("bit recv"):
+            code.add("  bitRecv()")
+
+          # mem map / push
+          elif l2.startsWith("mem map"):
+            code.add("  memMap(\"" & l2.split()[2] & "\")")
+          elif l2.startsWith("mem push"):
+            let parts = l2.split("with")
+            let target = stripQuotes(parts[0].split()[2])
+            let value = parts[1].strip()
+            code.add("  memPush(\"" & target & "\", \"" & value & "\")")
+
+          # tran pulse
+          elif l2.startsWith("tran pulse"):
+            let parts = l2.split()
+            code.add("  tranPulse(" & parts[2] & ", \"" & parts[3] & "\")")
+
+          # nested if / elif / else
+          elif l2.startsWith("if "):
+            code.add("  " & l2)
+          elif l2.startsWith("elif "):
+            code.add("  " & l2)
+          elif l2 == "else:":
+            code.add("  else:")
+
+          # phép gán
+          elif l2.contains("="):
+            let p = l2.split("=")
+            if p.len >= 2:
+              code.add("  var " & p[0].strip() & " = " & p[1..^1].join("=").strip())
+
+          j.inc
+        idx = j - 1
+      # --------------------------
+      # IF / ELIF / ELSE
+      # --------------------------
+      elif line.startsWith("apu tran"):
+        let parts = line.split("with")
+        let name = stripQuotes(parts[0].split()[2].strip())
+        let payload = parts[1].strip()
+        code.add("apuTran(\"" & name & "\", " & payload & ")")
+      elif line.startsWith("apu mem"):
+        let parts = line.split("with")
+        let left = parts[0].split()
+        let action = left[2]
+        let target = stripQuotes(left[3])
+        let value = parts[1].strip()
+        code.add("apuMem(\"" & action & "\", \"" & target & "\", \"" & value & "\")")
+      elif line.startsWith("apu core"):
+        code.add("apuCore(1, \"run\")")
+      elif line.startsWith("apu pin"):
+        let words = line.split()
+        code.add("apuPin(" & words[2] & ", \"" & words[4] & "\")")
+      elif line.startsWith("bit send"):
+        code.add("bitSend(\"" & line.split()[2] & "\")")
+      elif line.startsWith("bit recv"):
+        code.add("bitRecv()")
+      elif line.startsWith("mem map"):
+        code.add("memMap(\"" & stripQuotes(line.split()[2]) & "\")")
+      elif line.startsWith("mem push"):
+        let parts = line.split("with")
+        code.add("memPush(\"" & stripQuotes(parts[0].split()[2]) & "\", \"" & parts[1].strip() & "\")")
+      elif line.startsWith("tran pulse"):
+        let words = line.split()
+        code.add("tranPulse(" & words[3] & ", \"" & words[^1] & "\")")
       else:
         discard
     idx.inc
@@ -410,7 +646,5 @@ proc main() =
 
   if aotFile != "":
     generateNimCode(tokens, aotFile)
-  else:
-    runBybyLang(tokens)
 
 main()
