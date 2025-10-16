@@ -109,7 +109,8 @@ bit recv
 mem map "RAM0"
 mem push "RAM1" with 10
 ```
-
+### Can embed nim code in bybylang code
+echo "hello world"
 ### Print
 
 - `print "Hello World"`
