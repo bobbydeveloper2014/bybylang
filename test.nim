@@ -55,6 +55,7 @@ proc test() =
   echo "test1234"
   echo "Xin chào"
 
+echo "Mode 1: Low-level"
 apuTran("print", "hello world")
 apuMem("write", "RAM0", "5")
 tranPulse(3, "2ns")

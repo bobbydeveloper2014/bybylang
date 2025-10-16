@@ -605,7 +605,22 @@ proc generateNimCode(tokens: seq[Token], outFile: string) =
         let words = line.split()
         code.add("tranPulse(" & words[3] & ", \"" & words[^1] & "\")")
       else:
-        discard
+        if line.startsWith("mode is"):
+          let parts = line.split()
+          if parts.len >= 3:
+            let m = parseInt(parts[2])
+            if m == 1:
+              code.add("""echo "Mode 1: Low-level"""")
+            elif m == 2:
+              code.add("""echo "Mode 2: Mid-level"""")
+            elif m == 3:
+              code.add("""echo "Mode 3: High-level"""")
+            elif m == 4:
+              code.add("""echo "Mode 4: Web-level"""")
+            else:
+              code.add("echo \"Unknown mode: " & $m & "\"")
+        else:
+          code.add(line)
     idx.inc
 
   writeFile(nimFile, code.join("\n"))
