@@ -25,7 +25,7 @@ _BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép đ
 
 2. **Clone BybyLang repository:**
     ```bash
-    git clone https://github.com/username/bybylang.git
+    git clone https://github.com/bobbydeveloper2014/bybylang.git
     cd bybylang
     ```
 
