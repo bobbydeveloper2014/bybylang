@@ -53,7 +53,16 @@ _BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép đ
 ### Mode
 
 - `mode is 1` # 1: Low, 2: Mid, 3: High
-
+### Loop
+```bybylang
+while true:
+  print "hello"
+```
+### Repeat time
+```bybylang
+for i in range(1, 5):
+    print "hi"
+```
 ### Function
 
 ```bybylang
@@ -64,7 +73,16 @@ function sayHello
 ```bybylang
 call sayHello
 ```
-
+### If-elif-else
+```bybylang
+i = 2
+if i == 2:
+    apu tran "core" with "midstep"
+elif i == 3:
+    apu mem write "RAM1" with "99"
+else:
+    print "other"
+```
 ### Hardware commands
 
 - Write RAM:
