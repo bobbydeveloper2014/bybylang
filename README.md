@@ -113,7 +113,9 @@ mem map "RAM0"
 mem push "RAM1" with 10
 ```
 ### Can embed nim code in bybylang code
+```nim
 echo "hello world"
+```
 ### Print
 
 - `print "Hello World"`
