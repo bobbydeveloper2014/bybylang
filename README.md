@@ -2,7 +2,10 @@
 
 **BybyLang** is a programming language developed by Byby, allowing you to control virtual hardware (APU, BUS, RAM, Pins) or generate Nim code for direct execution. BybyLang supports **AOT compilation** for fast executable generation.
 
-_BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép điều khiển phần cứng ảo hoặc sinh ra mã Nim thực thi trực tiếp. BybyLang hỗ trợ chế độ biên dịch AOT, giúp bạn sinh file thực thi nhanh chóng._
+_BybyLang là một ngôn ngữ lập trình do Byby phát triển, cho phép điều khiển phần cứng ảo hoặc sinh ra mã Nim thực thi trực tiếp. BybyLang hỗ trợ chế độ biên dịch AOT, giúp bạn sinh file thực thi nhanh chóng.
+
+You can find bybylangjit in https://github.com/bobbydeveloper2014/bybylangjit
+Bạn có thể tìm bybylangjit ở https://github.com/bobbydeveloper2014/bybylangjit
 
 ## Main Features / Tính năng chính
 
